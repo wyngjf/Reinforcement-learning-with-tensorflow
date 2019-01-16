@@ -1,51 +1,47 @@
 """
-TRPO
+Base Class of rl algos.
 """
 
 import numpy as np
 import scipy.signal
 import tensorflow as tf
+import maths as maths
 from gym.spaces import Box, Discrete
-from scipy.sparse.linalg import cg
 
-EPS = 1e-8
 
-class PPO:
+class RL:
     def __init__(
             self,
             env,
             lr_pi=0.01,
-            lr_v=0.01,
+            # lr_v=0.01,
             gamma=0.99,
-            lam=0.97,
+            # lam=0.97,
             output_graph=False,
             seed=1,
-            ep_max=100,
-            ep_steps_max=4000,
-            hidden_sizes=(64, 64),
-            train_v_iters=80,
-            train_pi_iters=80,
-            clip=0.2,
-            target_kl=0.01
+            # ep_max=100,
+            # ep_steps_max=4000,
+            # hidden_sizes=(64, 64),
+            # train_v_iters=80,
+            # train_pi_iters=80,
+            # clip=0.2,
+            # target_kl=0.01
     ):
         np.random.seed(seed)
         tf.set_random_seed(seed)
         self.lr_pi = lr_pi
-        self.lr_v = lr_v
+        # self.lr_v = lr_v
         self.gamma = gamma
-        self.ep_max = ep_max
-        self.ep_steps_max = ep_steps_max
-        self.train_v_iters = train_v_iters
-        self.train_pi_iters = train_pi_iters
-        self.lam = lam
-        self.clip = clip
-        self.target_kl = target_kl
+        # self.ep_max = ep_max
+        # self.ep_steps_max = ep_steps_max
+        # self.train_v_iters = train_v_iters
+        # self.train_pi_iters = train_pi_iters
+        # self.lam = lam
+        # self.clip = clip
+        # self.target_kl = target_kl
 
         self.s = self._get_placeholder(env.observation_space, name='observations')
-        print("observations: ", self.s)
         self.a = self._get_placeholder(env.action_space, name='actions')
-        print("actions: ", self.a)
-
         self._build_net(hidden_sizes=hidden_sizes, action_space=env.action_space)
 
         self.sess = tf.Session()
@@ -66,13 +62,6 @@ class PPO:
             return tf.placeholder(dtype=tf.int32, shape=(None,), name=name)
         else:
             raise NotImplementedError
-
-    def _gaussian_likelihood(self, x, mu, log_std):
-        pre_sum = -0.5 * (((x - mu) / (tf.exp(log_std) + EPS)) ** 2 + 2 * log_std + np.log(2 * np.pi))
-        return tf.reduce_sum(pre_sum, axis=1)
-
-    def _discrete_kl_divergence(self, logp1, logp2):
-        return tf.squeeze(tf.reduce_sum(tf.exp(logp1) * (logp1 - logp2), axis=1))
 
     def _gaussian_kl_divergence(self, mu1, log_std1, mu2, log_std2):
         var1, var2 = tf.exp(2 * log_std1), tf.exp(2 * log_std2)
