@@ -12,6 +12,7 @@ gym: 0.8.0
 
 import gym
 from RL_brain import PolicyGradient
+from vpg import VPG
 import matplotlib.pyplot as plt
 
 DISPLAY_REWARD_THRESHOLD = 400  # renders environment if total episode reward is greater then this threshold

@@ -40,7 +40,6 @@ def choose_action(state, q_table):
         action_name = state_actions.idxmax()    # replace argmax to idxmax as argmax means a different function in newer version of pandas
     return action_name
 
-
 def get_env_feedback(S, A):
     # This is how agent will interact with the environment
     if A == 'right':    # move right
@@ -64,9 +63,10 @@ def update_env(S, episode, step_counter):
     env_list = ['-']*(N_STATES-1) + ['T']   # '---------T' our environment
     if S == 'terminal':
         interaction = 'Episode %s: total_steps = %s' % (episode+1, step_counter)
-        print('\r{}'.format(interaction), end='')
+        print('\r{}'.format(interaction), end='\n')
         time.sleep(2)
-        print('\r                                ', end='')
+        # print(' ', end='\n')
+        # print('\r                                ', end='')
     else:
         env_list[S] = 'o'
         interaction = ''.join(env_list)
