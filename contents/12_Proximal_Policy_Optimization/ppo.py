@@ -10,7 +10,7 @@ from scipy.sparse.linalg import cg
 
 EPS = 1e-8
 
-class TRPO:
+class PPO:
     def __init__(
             self,
             env,
@@ -18,34 +18,28 @@ class TRPO:
             lr_v=0.01,
             gamma=0.99,
             lam=0.97,
-            delta=0.01,
             output_graph=False,
             seed=1,
             ep_max=100,
             ep_steps_max=4000,
             hidden_sizes=(64, 64),
             train_v_iters=80,
-            damping_coeff=0.1,
-            cg_iters = 10,
-            backtrack_iters = 10,
-            backtrack_coeff = 0.8,
-            algo='trpo'
+            train_pi_iters=80,
+            clip=0.2,
+            target_kl=0.01
     ):
         np.random.seed(seed)
         tf.set_random_seed(seed)
         self.lr_pi = lr_pi
         self.lr_v = lr_v
         self.gamma = gamma
-        self.delta=delta
-        self.ep_max=ep_max
-        self.ep_steps_max=ep_steps_max
-        self.train_v_iters=train_v_iters
-        self.lam=lam
-        self.damping_coeff=damping_coeff
-        self.cg_iters=cg_iters
-        self.backtrack_iters=backtrack_iters
-        self.backtrack_coeff=backtrack_coeff
-        self.algo=algo
+        self.ep_max = ep_max
+        self.ep_steps_max = ep_steps_max
+        self.train_v_iters = train_v_iters
+        self.train_pi_iters = train_pi_iters
+        self.lam = lam
+        self.clip = clip
+        self.target_kl = target_kl
 
         self.s = self._get_placeholder(env.observation_space, name='observations')
         print("observations: ", self.s)
@@ -148,8 +142,11 @@ class TRPO:
         return pi, logp_batch, logp_pi, mu, log_std, kl_divergence
 
     def _build_net(self, hidden_sizes=(30,30), activation=tf.tanh, output_activation=None, policy=None, action_space=None):
+        # to be stored during the episode
         self.ep_s, self.ep_a, self.ep_r, self.ep_v = [], [], [], []
         self.ep_logps, self.ep_logp_pi = [], []
+
+        # placeholders for calculation of loss functions
         self.ep_ret = tf.placeholder(dtype=tf.float32, shape=(None,), name='ep_returns')
         self.ep_adv = tf.placeholder(dtype=tf.float32, shape=(None,), name='ep_advantages')
         self.logp_old = tf.placeholder(dtype=tf.float32, shape=(None,), name='logp_old')
@@ -167,23 +164,15 @@ class TRPO:
             # self.v = tf.squeeze(self._mlp(self.s, list(hidden_sizes)+[1], activation, None), axis=1)
             self.v = tf.squeeze(self._mlp(self.s, (30, 1), activation, None), axis=1)
 
-        # pi_loss = -tf.reduce_mean(logp_batch * self.ep_adv)
         ratio = tf.exp(logp_batch - self.logp_old)
-        self.pi_loss = -tf.reduce_mean(ratio * self.ep_adv)
+        min_adv = tf.where(self.ep_adv>0, (1+self.clip)*self.ep_adv, (1-self.clip)*self.ep_adv)
+        self.pi_loss = -tf.reduce_mean(tf.minimum(ratio * self.ep_adv, min_adv))
         self.v_loss = tf.reduce_mean((self.ep_ret - self.v)**2)
         with tf.name_scope('train'):
-            # self.train_pi = tf.train.AdamOptimizer(self.lr_pi).minimize(self.pi_loss)
+            self.train_pi = tf.train.AdamOptimizer(self.lr_pi).minimize(self.pi_loss)
             self.train_v = tf.train.AdamOptimizer(self.lr_v).minimize(self.v_loss)
 
-        self.pi_params = self._get_vars(scope='actor')
-        self.gradient = self._flat_grad(self.pi_loss, self.pi_params)
-        self.v_ph, self.hvp = self._hessian_vector_product(self.d_kl, self.pi_params)
-        if self.damping_coeff > 0:
-            self.hvp += self.damping_coeff * self.v_ph
-
-        # Symbols for getting and setting params
-        self.get_pi_params = self._flat_concat(self.pi_params)
-        self.set_pi_params = self._assign_params_from_flat(self.v_ph, self.pi_params)
+        self.d_kl = tf.reduce_mean(logp_batch - self.logp_old)
 
     def _get_vars(self, scope=''):
         return [x for x in tf.trainable_variables() if scope in x.name]
@@ -261,51 +250,24 @@ class TRPO:
         # self.a: np.squeeze(np.array(self.ep_a))})
 
     def _update(self):
-        print("update running")
         ep_s = np.vstack(self.ep_s)
         ep_a = np.squeeze(np.array(self.ep_a))
         ep_p = np.squeeze(np.array(self.ep_logp_pi))
-        ep_logps = np.vstack(self.ep_logps)
+        # ep_logps = np.vstack(self.ep_logps)
         self.inputs = {self.s: ep_s,
                        self.a: ep_a,
                        self.ep_adv: self.ep_Adv,
                        self.ep_ret: self.ep_G,
-                       self.logps_old: ep_logps,
+                       # self.logps_old: ep_logps,
                        self.logp_old: ep_p
                        }
-        # Prepare hessian func, gradient eval
-        Hx = lambda x: self.sess.run(self.hvp, feed_dict={**self.inputs, self.v_ph: x})
-        g, pi_l_old, v_l_old = self.sess.run([self.gradient, self.pi_loss, self.v_loss],
-                                             feed_dict=self.inputs)
-
-        # Core calculations for TRPO or NPG
-        x = self._conjugate_gradient(Hx, g)
-        alpha = np.sqrt(2 * self.delta / (np.dot(x, Hx(x)) + EPS))
-        old_params = self.sess.run(self.get_pi_params)
-
-        if self.algo == 'npg':
-            # npg has no backtracking or hard kl constraint enforcement
-            kl, pi_l_new = self._set_and_eval(x, alpha, old_params, self.inputs, step=1.)
-
-        elif self.algo == 'trpo':
-            # trpo augments npg with backtracking line search, hard kl
-            for j in range(self.backtrack_iters):
-                kl, pi_l_new = self._set_and_eval(x, alpha, old_params,
-                                                  self.inputs,
-                                                  step=self.backtrack_coeff ** j)
-                if kl <= self.delta and pi_l_new <= pi_l_old:
-                    print('Accepting new params at step %d of line search.' % j)
-                    break
-
-                if j == self.backtrack_iters - 1:
-                    print('Line search failed! Keeping old params.')
-                    kl, pi_l_new = self._set_and_eval(x, alpha, old_params, self.inputs, step=0.)
+        for i in range(self.train_pi_iters):
+            d_kl, _ = self.sess.run([self.d_kl, self.train_pi], feed_dict=self.inputs)
+            if d_kl > self.target_kl:
+                break
 
         for _ in range(self.train_v_iters):
-            self.sess.run(self.train_v, feed_dict={
-                self.s: ep_s,
-                self.ep_ret: self.ep_G
-            })
+            self.sess.run(self.train_v, feed_dict=self.inputs)
 
         self.ep_s, self.ep_a, self.ep_r, self.ep_v = [], [], [], []
         self.ep_logps, self.ep_logp_pi = [], []    # empty episode data
