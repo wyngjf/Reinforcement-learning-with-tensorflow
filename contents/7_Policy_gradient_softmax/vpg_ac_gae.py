@@ -51,7 +51,8 @@ class VPG_GAE:
     def _get_placeholder(self, space, name):
         if isinstance(space, Box):
             shape = space.shape  # (act_dim, )
-            dim = (None, shape) if np.isscalar(shape) else (None, *shape)
+            dim = (None,) if shape[0] == 1 else (None, *shape)
+            # dim = (None, shape) if np.isscalar(shape) else (None, *shape)
             return tf.placeholder(dtype=tf.float32, shape=dim, name=name)
         elif isinstance(space, Discrete):
             return tf.placeholder(dtype=tf.int32, shape=(None,), name=name)
@@ -110,12 +111,25 @@ class VPG_GAE:
             logp_pi: the log probability that pi is chosen
         """
         act_dim = action_space.shape[0]
-        mu = self._mlp(s, list(hidden_sizes)+[act_dim], activation, output_activation)
+
+        l1 = tf.layers.dense(s, 5, tf.nn.relu, trainable=True)
+        mu = tf.layers.dense(l1, act_dim, tf.nn.tanh, trainable=True)
         log_std = tf.get_variable(name='log_std', initializer=-0.5 * np.ones(act_dim, dtype=np.float32))
         std = tf.exp(log_std)
-        pi = mu + tf.random_normal(tf.shape(mu)) * std
+        # std = tf.layers.dense(l1, act_dim, tf.nn.softplus, trainable=True)
+        # log_std = tf.log(std)
+        norm_dist = tf.distributions.Normal(loc=mu, scale=std)
+        pi = tf.squeeze(norm_dist.sample(1), axis=0)
+
+        # mu = self._mlp(s, list(hidden_sizes)+[act_dim], activation, output_activation)
+        # log_std = tf.get_variable(name='log_std', initializer=-0.5 * np.ones(act_dim, dtype=np.float32))
+        # std = tf.exp(log_std)
+        # norm_dist = tf.distributions.Normal(loc=mu, scale=std)
+        # pi = tf.squeeze(norm_dist.sample(1), axis=0)
+        # # pi = mu + tf.random_normal(tf.shape(mu)) * std
         logp_batch = self._gaussian_likelihood(a, mu, log_std)
         logp_pi = self._gaussian_likelihood(pi, mu, log_std)
+
         return pi, logp_batch, logp_pi
 
     def _build_net(self, hidden_sizes=(30,30), activation=tf.tanh, output_activation=None, policy=None, action_space=None):
@@ -157,11 +171,11 @@ class VPG_GAE:
         ep_v = np.append(self.ep_v, last_value)
 
         ep_ret = self._discounted_sum_vec(ep_r, self.gamma)[:-1]
-        ep_ret -= np.mean(ep_ret)
-        ep_ret /= np.std(ep_ret)
 
         deltas = ep_r[:-1] + self.gamma * ep_v[1:] - ep_v[:-1]
         ep_adv = self._discounted_sum_vec(deltas, self.gamma * self.lam)
+        ep_adv -= np.mean(ep_adv)
+        ep_adv /= np.std(ep_adv)
         return ep_ret, ep_adv
 
     def _discounted_sum_vec(self, x, discount):

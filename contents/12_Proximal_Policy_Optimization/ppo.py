@@ -42,8 +42,8 @@ class PPO:
         self.target_kl = target_kl
 
         self.s = self._get_placeholder(env.observation_space, name='observations')
-        print("observations: ", self.s)
         self.a = self._get_placeholder(env.action_space, name='actions')
+        print("observations: ", self.s)
         print("actions: ", self.a)
 
         self._build_net(hidden_sizes=hidden_sizes, action_space=env.action_space)

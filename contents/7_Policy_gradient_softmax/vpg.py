@@ -47,7 +47,8 @@ class VPG:
     def _get_placeholder(self, space, name):
         if isinstance(space, Box):
             shape = space.shape  # (act_dim, )
-            dim = (None, shape) if np.isscalar(shape) else (None, *shape)
+            dim = (None,) if shape[0] == 1 else (None, *shape)
+            # dim = (None, shape) if np.isscalar(shape) else (None, *shape)
             return tf.placeholder(dtype=tf.float32, shape=dim, name=name)
         elif isinstance(space, Discrete):
             return tf.placeholder(dtype=tf.int32, shape=(None,), name=name)
