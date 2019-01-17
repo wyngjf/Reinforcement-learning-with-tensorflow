@@ -60,7 +60,8 @@ class PPO:
     def _get_placeholder(self, space, name):
         if isinstance(space, Box):
             shape = space.shape  # (act_dim, )
-            dim = (None, shape) if np.isscalar(shape) else (None, *shape)
+            dim = (None,) if shape[0] == 1 else (None, *shape)
+            # dim = (None, shape) if np.isscalar(shape) else (None, *shape)
             return tf.placeholder(dtype=tf.float32, shape=dim, name=name)
         elif isinstance(space, Discrete):
             return tf.placeholder(dtype=tf.int32, shape=(None,), name=name)
@@ -108,7 +109,7 @@ class PPO:
 
         self.logps_old = tf.placeholder(dtype=tf.float32, shape=(None,act_dim), name='logps_old')
         kl_divergence = self._discrete_kl_divergence(logps, self.logps_old)
-        return pi, logp_batch, logp_pi, logps, kl_divergence
+        return pi, logp_batch, logp_pi  #, logps, kl_divergence
 
     def _mlp_gaussian_policy(self, s, a, hidden_sizes, activation, output_activation, action_space):
         """
@@ -129,17 +130,27 @@ class PPO:
             logp_pi: the log probability that pi is chosen
         """
         act_dim = action_space.shape[0]
-        mu = self._mlp(s, list(hidden_sizes)+[act_dim], activation, output_activation)
-        log_std = tf.get_variable(name='log_std', initializer=-0.5 * np.ones(act_dim, dtype=np.float32))
-        std = tf.exp(log_std)
-        pi = mu + tf.random_normal(tf.shape(mu)) * std
-        logp_batch = self._gaussian_likelihood(a, mu, log_std)
-        logp_pi = self._gaussian_likelihood(pi, mu, log_std)
 
-        mu_old = tf.placeholder(dtype=tf.float32, shape=(None,act_dim), name='mu_old')
-        log_std_old = tf.placeholder(dtype=tf.float32, shape=(None,act_dim), name='log_std_old')
-        kl_divergence = self._gaussian_kl_divergence(mu, log_std, mu_old, log_std_old)
-        return pi, logp_batch, logp_pi, mu, log_std, kl_divergence
+        l1 = tf.layers.dense(s, 100, tf.nn.relu, trainable=True)
+        mu = tf.layers.dense(l1, act_dim, tf.nn.tanh, trainable=True)
+        std = tf.layers.dense(l1, act_dim, tf.nn.softplus, trainable=True)
+        norm_dist = tf.distributions.Normal(loc=mu, scale=std)
+        pi = tf.squeeze(norm_dist.sample(1), axis=0)
+        logp_pi = norm_dist.prob(pi)
+        logp_batch = norm_dist.prob(a)
+
+
+        # mu = self._mlp(s, list(hidden_sizes)+[act_dim], activation, output_activation)
+        # log_std = tf.get_variable(name='log_std', initializer=-0.5 * np.ones(act_dim, dtype=np.float32))
+        # std = tf.exp(log_std)
+        # pi = mu + tf.random_normal(tf.shape(mu)) * std
+        # logp_batch = self._gaussian_likelihood(a, mu, log_std)
+        # logp_pi = self._gaussian_likelihood(pi, mu, log_std)
+
+        # mu_old = tf.placeholder(dtype=tf.float32, shape=(None,act_dim), name='mu_old')
+        # log_std_old = tf.placeholder(dtype=tf.float32, shape=(None,act_dim), name='log_std_old')
+        # kl_divergence = self._gaussian_kl_divergence(mu, log_std, mu_old, log_std_old)
+        return pi, logp_batch, logp_pi  #, mu, log_std, kl_divergence
 
     def _build_net(self, hidden_sizes=(30,30), activation=tf.tanh, output_activation=None, policy=None, action_space=None):
         # to be stored during the episode
@@ -158,11 +169,12 @@ class PPO:
             policy = self._mlp_discrete_policy
 
         with tf.variable_scope('actor'):  # TODO
-            self.pi, logp_batch, self.logp_pi, self.logps, self.d_kl = \
+            # self.pi, logp_batch, self.logp_pi, self.logps, self.d_kl = \
+            self.pi, logp_batch, self.logp_pi = \
                 policy(self.s, self.a, hidden_sizes, activation, output_activation, action_space)
         with tf.variable_scope('critic'):
             # self.v = tf.squeeze(self._mlp(self.s, list(hidden_sizes)+[1], activation, None), axis=1)
-            self.v = tf.squeeze(self._mlp(self.s, (30, 1), activation, None), axis=1)
+            self.v = tf.squeeze(self._mlp(self.s, list(hidden_sizes)+[1], activation, None), axis=1)
 
         ratio = tf.exp(logp_batch - self.logp_old)
         min_adv = tf.where(self.ep_adv>0, (1+self.clip)*self.ep_adv, (1-self.clip)*self.ep_adv)
@@ -201,9 +213,11 @@ class PPO:
         return a
 
     def _get_agent_status(self, s):
-        a, logp_pi, logps, v = self.sess.run([self.pi, self.logp_pi, self.logps, self.v],
+        # a, logp_pi, logps, v = self.sess.run([self.pi, self.logp_pi, self.logps, self.v],
+        #                                      feed_dict={self.s: s[np.newaxis, :]})
+        a, logp_pi, v = self.sess.run([self.pi, self.logp_pi, self.v],
                                       feed_dict={self.s: s[np.newaxis, :]})
-        return a, logp_pi, logps, v,
+        return a, logp_pi, v,
 
     def _store_transition(self, s, a, r, v, p, ps):
         self.ep_s.append(s)
@@ -281,11 +295,11 @@ class PPO:
             for step_index in range(self.ep_steps_max):
                 if render:
                     env.render()
-                a, logp_pi, logps, v = self._get_agent_status(s)
+                a, logp_pi, v = self._get_agent_status(s)
 
                 s_, r, done, _ = env.step(a[0])
 
-                self._store_transition(s, a, r, v, logp_pi, logps)
+                self._store_transition(s, a, r, v, logp_pi, [1])
 
                 terminal = done or (step_index == self.ep_steps_max-1)
                 if terminal:
