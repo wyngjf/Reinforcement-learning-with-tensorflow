@@ -60,8 +60,9 @@ class PPO:
     def _get_placeholder(self, space, name):
         if isinstance(space, Box):
             shape = space.shape  # (act_dim, )
-            dim = (None,) if shape[0] == 1 else (None, *shape)
+            dim = (None, ) if shape[0] == 1 else (None, *shape)
             # dim = (None, shape) if np.isscalar(shape) else (None, *shape)
+            print("shape: ", shape, " dim: ", dim)
             return tf.placeholder(dtype=tf.float32, shape=dim, name=name)
         elif isinstance(space, Discrete):
             return tf.placeholder(dtype=tf.int32, shape=(None,), name=name)
@@ -132,13 +133,13 @@ class PPO:
         act_dim = action_space.shape[0]
 
         l1 = tf.layers.dense(s, 100, tf.nn.relu, trainable=True)
-        mu = tf.layers.dense(l1, act_dim, tf.nn.tanh, trainable=True)
+        mu = 2 * tf.layers.dense(l1, act_dim, tf.nn.tanh, trainable=True)
         std = tf.layers.dense(l1, act_dim, tf.nn.softplus, trainable=True)
         norm_dist = tf.distributions.Normal(loc=mu, scale=std)
-        pi = tf.squeeze(norm_dist.sample(1), axis=0)
+        # pi = tf.squeeze(norm_dist.sample(1), axis=0)
+        pi = mu + tf.random_normal(tf.shape(mu)) * std
         logp_pi = norm_dist.prob(pi)
         logp_batch = norm_dist.prob(a)
-
 
         # mu = self._mlp(s, list(hidden_sizes)+[act_dim], activation, output_activation)
         # log_std = tf.get_variable(name='log_std', initializer=-0.5 * np.ones(act_dim, dtype=np.float32))
@@ -296,6 +297,7 @@ class PPO:
                 if render:
                     env.render()
                 a, logp_pi, v = self._get_agent_status(s)
+                a = np.clip(a, -2, 2)
 
                 s_, r, done, _ = env.step(a[0])
 

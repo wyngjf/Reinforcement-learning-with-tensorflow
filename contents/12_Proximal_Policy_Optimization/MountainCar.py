@@ -5,12 +5,12 @@ The MountainCar Example
 """
 
 import gym
-from ppo import PPO
+from ppo3 import PPO
 
 # env = gym.make('MountainCar-v0')
 # env = gym.make('CartPole-v0')
-# env = gym.make('Pendulum-v0')
-env = gym.make('BipedalWalker-v2')
+env = gym.make('Pendulum-v0')
+# env = gym.make('BipedalWalker-v2')
 env.seed(1)     # reproducible, general Policy gradient has high variance
 env = env.unwrapped
 
@@ -33,12 +33,12 @@ agent = PPO(
     output_graph=False,
     seed=1,
     ep_max=1000,
-    ep_steps_max=2000,
+    ep_steps_max=200,
     hidden_sizes=(100,),
     train_v_iters=10,
     train_pi_iters=10,
     clip=0.2,
-    target_kl=0.01
+    target_kl=0.1
 )
 
 # CartPole hidden_size=(7,), v_iter = pi_iter = 80, clip=0.2, kl = 0.01
@@ -48,7 +48,7 @@ agent = PPO(
 # agent.train(env, render_threshold_reward=-200, render=False)
 
 # Continuous MountainCar hidden_size=(7,), v_iter = pi_iter = 80, clip=0.2, kl = 0.01
-agent.train(env, render_threshold_reward=-20, render=False)
+# agent.train(env, render_threshold_reward=-20, render=False)
 
 # Pendulum hidden_size=(30,), v_iter = pi_iter = 20, clip=0.2, kl = 0.01
-# agent.train(env, render_threshold_reward=-500, render=False)
+agent.train(env, render_threshold_reward=-10, render=False)

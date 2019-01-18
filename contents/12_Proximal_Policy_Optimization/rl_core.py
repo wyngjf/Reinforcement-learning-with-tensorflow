@@ -116,20 +116,29 @@ class RL:
         """
         act_dim = action_space.shape[0]
 
-        l1 = tf.layers.dense(s, 5, tf.nn.relu, trainable=True)
+        # l1 = tf.layers.dense(s, 5, tf.nn.relu, trainable=True)
+        # mu = tf.layers.dense(l1, act_dim, tf.nn.tanh, trainable=True)
+        # std = tf.layers.dense(l1, act_dim, tf.nn.softplus, trainable=True)
+        # log_std = tf.log(std)
+        # norm_dist = tf.distributions.Normal(loc=mu, scale=std)
+        # pi = tf.squeeze(norm_dist.sample(1), axis=0)
+
+        l1 = tf.layers.dense(s, 100, tf.nn.relu, trainable=True)
         mu = tf.layers.dense(l1, act_dim, tf.nn.tanh, trainable=True)
         std = tf.layers.dense(l1, act_dim, tf.nn.softplus, trainable=True)
         log_std = tf.log(std)
         norm_dist = tf.distributions.Normal(loc=mu, scale=std)
         pi = tf.squeeze(norm_dist.sample(1), axis=0)
+        logp_pi = norm_dist.prob(pi)
+        logp_batch = norm_dist.prob(a)
 
         #
         # mu = maths.mlp(s, list(hidden_sizes)+[act_dim], activation, output_activation)
         # log_std = tf.get_variable(name='log_std', initializer=-0.5 * np.ones(act_dim, dtype=np.float32))
         # std = tf.exp(log_std)
         # pi = mu + tf.random_normal(tf.shape(mu)) * std
-        logp_batch = maths.gaussian_likelihood(a, mu, log_std)
-        logp_pi = maths.gaussian_likelihood(pi, mu, log_std)
+        # logp_batch = maths.gaussian_likelihood(a, mu, log_std)
+        # logp_pi = maths.gaussian_likelihood(pi, mu, log_std)
 
         dim = (None, ) if act_dim == 1 else (None, act_dim)
         self.mu_old = tf.placeholder(dtype=tf.float32, shape=dim, name='mu_old')
@@ -218,7 +227,7 @@ class RL:
                     print("episode:", ep_index, "  reward:", int(running_reward))
 
                     inputs = self._get_inputs(s_, r, done)
-                    print("episode:", ep_index, inputs[4])
+                    # print("episode:", ep_index, inputs[4])
                     self._update(inputs)
                     done = False
 

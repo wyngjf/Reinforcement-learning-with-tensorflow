@@ -103,34 +103,34 @@ class PPO(object):
         # update critic
         [self.sess.run(self.ctrain_op, {self.tfs: s, self.tfdc_r: r}) for _ in range(C_UPDATE_STEPS)]
 
-    # def _build_anet(self, name, trainable):
-    #     with tf.variable_scope(name):
-    #         l1 = tf.layers.dense(self.tfs, 100, tf.nn.relu, trainable=trainable)
-    #         mu = 2 * tf.layers.dense(l1, A_DIM, tf.nn.tanh, trainable=trainable)
-    #         sigma = tf.layers.dense(l1, A_DIM, tf.nn.softplus, trainable=trainable)
-    #         norm_dist = tf.distributions.Normal(loc=mu, scale=sigma)
-    #     params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=name)
-    #     return norm_dist, params
-
-    def _mlp(self, x, hidden_sizes=(64,), activation=tf.tanh, output_activation=None):
-        for h in hidden_sizes[:-1]:
-            x = tf.layers.dense(x, units=h, activation=activation)
-        return tf.layers.dense(x, units=hidden_sizes[-1], activation=output_activation)
-
     def _build_anet(self, name, trainable):
         with tf.variable_scope(name):
-            act_dim = A_DIM
-            mu = self._mlp(self.tfs, [100] + [act_dim], tf.nn.relu, tf.nn.tanh)
-            log_std = tf.get_variable(name='log_std', initializer=-0.5 * np.ones(act_dim, dtype=np.float32))
-            std = tf.exp(log_std)
-            norm_dist = tf.distributions.Normal(loc=mu, scale=std)
-
-            # l1 = tf.layers.dense(self.tfs, 100, tf.nn.relu, trainable=trainable)
-            # mu = 2 * tf.layers.dense(l1, A_DIM, tf.nn.tanh, trainable=trainable)
-            # sigma = tf.layers.dense(l1, A_DIM, tf.nn.softplus, trainable=trainable)
-            # norm_dist = tf.distributions.Normal(loc=mu, scale=sigma)
+            l1 = tf.layers.dense(self.tfs, 100, tf.nn.relu, trainable=trainable)
+            mu = 2 * tf.layers.dense(l1, A_DIM, tf.nn.tanh, trainable=trainable)
+            sigma = tf.layers.dense(l1, A_DIM, tf.nn.softplus, trainable=trainable)
+            norm_dist = tf.distributions.Normal(loc=mu, scale=sigma)
         params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=name)
         return norm_dist, params
+
+    # def _mlp(self, x, hidden_sizes=(64,), activation=tf.tanh, output_activation=None):
+    #     for h in hidden_sizes[:-1]:
+    #         x = tf.layers.dense(x, units=h, activation=activation)
+    #     return tf.layers.dense(x, units=hidden_sizes[-1], activation=output_activation)
+    #
+    # def _build_anet(self, name, trainable):
+    #     with tf.variable_scope(name):
+    #         act_dim = A_DIM
+    #         mu = self._mlp(self.tfs, [100] + [act_dim], tf.nn.relu, tf.nn.tanh)
+    #         log_std = tf.get_variable(name='log_std', initializer=-0.5 * np.ones(act_dim, dtype=np.float32))
+    #         std = tf.exp(log_std)
+    #         norm_dist = tf.distributions.Normal(loc=mu, scale=std)
+    #
+    #         # l1 = tf.layers.dense(self.tfs, 100, tf.nn.relu, trainable=trainable)
+    #         # mu = 2 * tf.layers.dense(l1, A_DIM, tf.nn.tanh, trainable=trainable)
+    #         # sigma = tf.layers.dense(l1, A_DIM, tf.nn.softplus, trainable=trainable)
+    #         # norm_dist = tf.distributions.Normal(loc=mu, scale=sigma)
+    #     params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=name)
+    #     return norm_dist, params
 
     def choose_action(self, s):
         s = s[np.newaxis, :]
@@ -158,6 +158,8 @@ for ep in range(EP_MAX):
         buffer_s.append(s)
         buffer_a.append(a)
         buffer_r.append((r+8)/8)    # normalize reward, find to be useful
+        # buffer_r.append(r)    # normalize reward, find to be useful
+        print("time %d: " % t, r)
         s = s_
         ep_r += r
 
@@ -175,7 +177,8 @@ for ep in range(EP_MAX):
             ppo.update(bs, ba, br)
     if ep == 0: all_ep_r.append(ep_r)
     else: all_ep_r.append(all_ep_r[-1]*0.9 + ep_r*0.1)
-    if ep_r > -100:
+    # if ep_r > -100:
+    if ep > 950:
         RENDER = True
     print(
         'Ep: %i' % ep,
